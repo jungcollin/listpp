@@ -23,6 +23,11 @@ final class PortScanner {
     }
 
     private let serviceCatalog = ServiceCatalog()
+    private let homeDirectory: String
+
+    init(homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path) {
+        self.homeDirectory = homeDirectory
+    }
 
     func scanListeningTCPPorts(sortedBy sortMode: EntrySortMode) -> PortScanOutcome {
         guard let result = Shell.run("/usr/sbin/lsof", ["-nP", "-iTCP", "-sTCP:LISTEN"]) else {
@@ -59,16 +64,28 @@ final class PortScanner {
 
         let pids = Array(Set(grouped.keys.map(\.pid))).sorted()
         let processMetadata = fetchProcessMetadata(for: pids)
+        let workingDirectories = fetchWorkingDirectories(for: pids)
 
         let entries = grouped.map { key, endpoints in
-            PortEntry(
+            let commandLine = processMetadata[key.pid]?.commandLine
+            let identity = PortIdentity.resolve(
+                command: key.command,
+                commandLine: commandLine,
+                workingDirectory: workingDirectories[key.pid],
+                homeDirectory: homeDirectory
+            )
+            return PortEntry(
                 command: key.command,
                 pid: key.pid,
                 user: key.user,
                 port: key.port,
                 serviceName: key.serviceName,
                 endpoints: endpoints.sorted(),
-                commandLine: processMetadata[key.pid]?.commandLine
+                commandLine: commandLine,
+                workingDirectory: identity.workingDirectory,
+                projectLabel: identity.projectLabel,
+                toolLabel: identity.toolLabel,
+                isProjectServer: identity.isProjectServer
             )
         }
 
@@ -158,6 +175,27 @@ final class PortScanner {
         }
 
         return map
+    }
+
+    private func fetchWorkingDirectories(for pids: [Int]) -> [Int: String] {
+        guard !pids.isEmpty else { return [:] }
+
+        var directories: [Int: String] = [:]
+        for batch in stride(from: 0, to: pids.count, by: 80) {
+            let slice = pids[batch..<min(batch + 80, pids.count)]
+            let pidArg = slice.map(String.init).joined(separator: ",")
+            guard let result = Shell.run(
+                "/usr/sbin/lsof",
+                ["-nP", "-w", "-Fpn", "-a", "-d", "cwd", "-p", pidArg]
+            ) else {
+                continue
+            }
+            let parsed = PortIdentity.parseLsofCwdFields(result.stdout)
+            for (pid, path) in parsed {
+                directories[pid] = path
+            }
+        }
+        return directories
     }
 
     private func parseElapsedSeconds(_ text: String) -> Int? {

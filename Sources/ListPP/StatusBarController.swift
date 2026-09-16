@@ -41,7 +41,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 320, height: 220)
+        popover.contentSize = NSSize(width: 360, height: 220)
 
         let rootView = MenuBarView()
             .environmentObject(store)
@@ -75,7 +75,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             view.layoutSubtreeIfNeeded()
             let fitting = view.fittingSize
             popover.contentSize = NSSize(
-                width: 320,
+                width: 360,
                 height: min(max(fitting.height, 160), 460)
             )
         }

@@ -11,35 +11,65 @@ final class PortStore: ObservableObject {
         }
     }
     @Published var filterText = ""
+    @Published var scope: EntryScope = .project
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var isRefreshing = false
     @Published private(set) var scanError: String?
 
     var openDashboard: () -> Void = {}
 
-    var visibleEntries: [PortEntry] {
-        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return entries }
-        return entries.filter { entry in
-            if String(entry.port).contains(query) { return true }
-            if String(entry.pid).contains(query) { return true }
-            if entry.command.lowercased().contains(query) { return true }
-            if entry.user.lowercased().contains(query) { return true }
-            if entry.serviceName?.lowercased().contains(query) == true { return true }
-            if entry.commandLine?.lowercased().contains(query) == true { return true }
-            return entry.endpoints.contains { $0.lowercased().contains(query) }
+    var projectEntries: [PortEntry] {
+        entries.filter(\.isProjectServer)
+    }
+
+    var otherEntries: [PortEntry] {
+        entries.filter { !$0.isProjectServer }
+    }
+
+    var scopedEntries: [PortEntry] {
+        switch scope {
+        case .project:
+            return projectEntries
+        case .all:
+            return entries
+        case .other:
+            return otherEntries
         }
     }
 
-    var listeningSummary: String {
-        switch entries.count {
-        case 0:
-            return "No listening ports"
-        case 1:
-            return "1 listening port"
-        default:
-            return "\(entries.count) listening ports"
+    var visibleEntries: [PortEntry] {
+        filter(scopedEntries)
+    }
+
+    var visibleProjectEntries: [PortEntry] {
+        visibleEntries.filter(\.isProjectServer)
+    }
+
+    var visibleOtherEntries: [PortEntry] {
+        visibleEntries.filter { !$0.isProjectServer }
+    }
+
+    var previewEntries: [PortEntry] {
+        if !projectEntries.isEmpty {
+            return projectEntries
         }
+        return entries
+    }
+
+    var listeningSummary: String {
+        let total = entries.count
+        let projects = projectEntries.count
+        if total == 0 {
+            return "No listening ports"
+        }
+        if projects == 0 {
+            return total == 1 ? "1 listening port" : "\(total) listening ports"
+        }
+        let projectPart = projects == 1 ? "1 project server" : "\(projects) project servers"
+        if projects == total {
+            return projectPart
+        }
+        return "\(projectPart)  ·  \(total) listening"
     }
 
     private let scanner = PortScanner()
@@ -114,7 +144,7 @@ final class PortStore: ObservableObject {
 
         do {
             try ProcessActions.terminate(pid: entry.pid)
-            try ProcessActions.relaunch(commandLine: commandLine)
+            try ProcessActions.relaunch(commandLine: commandLine, workingDirectory: entry.workingDirectory)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.refresh()
             }
@@ -135,5 +165,11 @@ final class PortStore: ObservableObject {
         return Set(frequency.compactMap { port, count in
             count > 1 ? port : nil
         })
+    }
+
+    private func filter(_ entries: [PortEntry]) -> [PortEntry] {
+        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return entries }
+        return entries.filter { $0.searchText.contains(query) }
     }
 }

@@ -25,10 +25,17 @@ enum Shell {
         }
     }
 
-    static func launchDetached(_ executable: String, _ arguments: [String]) -> Bool {
+    static func launchDetached(
+        _ executable: String,
+        _ arguments: [String],
+        currentDirectory: String? = nil
+    ) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let currentDirectory {
+            process.currentDirectoryURL = URL(fileURLWithPath: currentDirectory)
+        }
         process.standardInput = nil
         process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
         process.standardError = FileHandle(forWritingAtPath: "/dev/null")

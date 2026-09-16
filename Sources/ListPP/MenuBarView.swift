@@ -15,7 +15,7 @@ struct MenuBarView: View {
             footer
         }
         .padding(14)
-        .frame(width: 320)
+        .frame(width: 360)
     }
 
     private var header: some View {
@@ -34,7 +34,11 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(store.listeningSummary)
                 .font(.caption.weight(.semibold))
-            if !store.duplicatePorts.isEmpty {
+            if store.projectEntries.isEmpty, !store.entries.isEmpty {
+                Text("No leftover project servers — Open to inspect system listeners")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if !store.duplicatePorts.isEmpty {
                 Text("\(store.duplicatePorts.count) ports shared by more than one process")
                     .font(.caption2)
                     .foregroundStyle(.orange)
@@ -55,66 +59,67 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            let preview = Array(store.entries.prefix(previewLimit))
+            let preview = Array(store.previewEntries.prefix(previewLimit))
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(preview) { entry in
                         compactRow(entry)
                     }
-                    if store.entries.count > previewLimit {
-                        Text("Open dashboard for \(store.entries.count - previewLimit) more")
+                    if store.previewEntries.count > previewLimit {
+                        Text("Open dashboard for \(store.previewEntries.count - previewLimit) more")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    } else if store.previewEntries.count < store.entries.count {
+                        Text("Open dashboard for \(store.entries.count - store.previewEntries.count) other listeners")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
-            .frame(maxHeight: 280)
+            .frame(maxHeight: 300)
         }
     }
 
     private func compactRow(_ entry: PortEntry) -> some View {
         let duplicate = store.duplicatePorts.contains(entry.port)
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(entry.port)")
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(duplicate ? Color.orange : Color.primary)
-                    .frame(width: 48, alignment: .trailing)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(entry.command)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                        if let service = entry.serviceName {
-                            Text(service)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Text("PID \(entry.pid)  ·  \(entry.user)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Spacer(minLength: 0)
+        return HStack(alignment: .center, spacing: 8) {
+            Text("\(entry.port)")
+                .font(.system(.callout, design: .rounded).weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(duplicate ? Color.orange : Color.primary)
+                .frame(width: 48, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.displayTitle)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(compactIdentity(entry))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("Restart") {
-                    store.restart(entry)
-                }
-                .disabled(!entry.canRestart)
-                .help("SIGTERM, then relaunch the same command line")
-                Button("Stop", role: .destructive) {
-                    store.terminate(entry)
-                }
-                .help("Send SIGTERM to this process")
+            Spacer(minLength: 8)
+            Button("Stop", role: .destructive) {
+                store.terminate(entry)
             }
             .controlSize(.mini)
+            .help("Send SIGTERM to this process")
         }
         .padding(.vertical, 2)
+    }
+
+    private func compactIdentity(_ entry: PortEntry) -> String {
+        var parts: [String] = []
+        if let tool = entry.toolLabel, tool.caseInsensitiveCompare(entry.displayTitle) != .orderedSame {
+            parts.append(tool)
+        }
+        if entry.command.caseInsensitiveCompare(entry.displayTitle) != .orderedSame,
+           entry.command.caseInsensitiveCompare(entry.toolLabel ?? "") != .orderedSame {
+            parts.append(entry.command)
+        }
+        if parts.isEmpty {
+            parts.append("PID \(entry.pid)")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var footer: some View {

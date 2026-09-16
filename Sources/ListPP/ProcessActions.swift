@@ -27,8 +27,12 @@ enum ProcessActions {
         }
     }
 
-    static func relaunch(commandLine: String) throws {
-        let relaunched = Shell.launchDetached("/bin/zsh", ["-lc", commandLine])
+    static func relaunch(commandLine: String, workingDirectory: String? = nil) throws {
+        let relaunched = Shell.launchDetached(
+            "/bin/zsh",
+            ["-lc", commandLine],
+            currentDirectory: workingDirectory
+        )
         guard relaunched else {
             throw ProcessActionError.commandFailed("Failed to relaunch command.")
         }
@@ -40,11 +44,19 @@ enum AppAlerts {
     static func confirmRestart(entry: PortEntry) -> Bool {
         let confirmation = NSAlert()
         confirmation.alertStyle = .warning
-        confirmation.messageText = "Restart this process?"
-        confirmation.informativeText = """
-        Sends SIGTERM to \(entry.command) (\(entry.pid)) and relaunches with the same command line.
-        Cmd: \(TextPreview.truncate(entry.commandLine ?? "", maxLength: 180))
-        """
+        confirmation.messageText = "Restart \(entry.displayTitle)?"
+        var details = [
+            "Sends SIGTERM to \(entry.command) (\(entry.pid)) on port \(entry.port) and relaunches the same command line."
+        ]
+        if let workingDirectory = entry.workingDirectory {
+            let compact = PortIdentity.compactPath(
+                workingDirectory,
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            details.append("cwd: \(compact)")
+        }
+        details.append("Cmd: \(TextPreview.truncate(entry.commandLine ?? "", maxLength: 180))")
+        confirmation.informativeText = details.joined(separator: "\n")
         confirmation.addButton(withTitle: "Restart")
         confirmation.addButton(withTitle: "Cancel")
         return confirmation.runModal() == .alertFirstButtonReturn

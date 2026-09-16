@@ -3,6 +3,10 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var store: PortStore
 
+    private var homeDirectory: String {
+        FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -20,18 +24,12 @@ struct DashboardView: View {
                             detail: "Nothing is accepting TCP connections right now."
                         )
                     } else if store.visibleEntries.isEmpty {
-                        statusCard(
-                            title: "No matches",
-                            detail: "Nothing matches “\(store.filterText)”."
-                        )
+                        emptyFilterCard
+                    } else if store.scope == .all {
+                        groupedCards
                     } else {
                         ForEach(store.visibleEntries) { entry in
-                            PortCardView(
-                                entry: entry,
-                                isDuplicate: store.duplicatePorts.contains(entry.port),
-                                onRestart: { store.restart(entry) },
-                                onTerminate: { store.terminate(entry) }
-                            )
+                            portCard(entry)
                         }
                     }
                 }
@@ -39,7 +37,7 @@ struct DashboardView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .frame(minWidth: 560, minHeight: 480)
+        .frame(minWidth: 600, minHeight: 480)
     }
 
     private var header: some View {
@@ -79,8 +77,16 @@ struct DashboardView: View {
             }
 
             HStack(spacing: 10) {
-                TextField("Filter ports, processes, users…", text: $store.filterText)
+                TextField("Filter projects, tools, ports…", text: $store.filterText)
                     .textFieldStyle(.roundedBorder)
+                Picker("Scope", selection: $store.scope) {
+                    ForEach(EntryScope.allCases) { scope in
+                        Text(scope.title).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 240)
+                .labelsHidden()
                 if !store.filterText.isEmpty {
                     Button("Clear") {
                         store.filterText = ""
@@ -104,6 +110,55 @@ struct DashboardView: View {
         return parts.joined(separator: "  ·  ")
     }
 
+    @ViewBuilder
+    private var groupedCards: some View {
+        if !store.visibleProjectEntries.isEmpty {
+            sectionHeader("Project servers", count: store.visibleProjectEntries.count)
+            ForEach(store.visibleProjectEntries) { entry in
+                portCard(entry)
+            }
+        }
+        if !store.visibleOtherEntries.isEmpty {
+            sectionHeader("Other listeners", count: store.visibleOtherEntries.count)
+            ForEach(store.visibleOtherEntries) { entry in
+                portCard(entry)
+            }
+        }
+    }
+
+    private var emptyFilterCard: some View {
+        let title: String
+        let detail: String
+        if !store.filterText.isEmpty {
+            title = "No matches"
+            detail = "Nothing matches “\(store.filterText)”."
+        } else if store.scope == .project {
+            title = "No project servers"
+            detail = "Nothing under ~/Project, and no recognized Vite/Next/dev listeners. Switch to All to see system ports."
+        } else {
+            title = "No matches"
+            detail = "Nothing in this view."
+        }
+        return statusCard(title: title, detail: detail)
+    }
+
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        Text("\(title)  ·  \(count)")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.top, 4)
+    }
+
+    private func portCard(_ entry: PortEntry) -> some View {
+        PortCardView(
+            entry: entry,
+            isDuplicate: store.duplicatePorts.contains(entry.port),
+            homeDirectory: homeDirectory,
+            onRestart: { store.restart(entry) },
+            onTerminate: { store.terminate(entry) }
+        )
+    }
+
     private func statusCard(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -121,6 +176,7 @@ struct DashboardView: View {
 struct PortCardView: View {
     let entry: PortEntry
     let isDuplicate: Bool
+    let homeDirectory: String
     let onRestart: () -> Void
     let onTerminate: () -> Void
 
@@ -134,9 +190,17 @@ struct PortCardView: View {
                     .frame(minWidth: 64, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.command)
+                    Text(entry.displayTitle)
                         .font(.headline)
-                    Text("PID \(entry.pid)  ·  \(entry.user)")
+                        .textSelection(.enabled)
+                    if let location = entry.locationLine(homeDirectory: homeDirectory) {
+                        Text(location)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                    }
+                    Text(entry.identityLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -144,12 +208,12 @@ struct PortCardView: View {
 
                 Spacer(minLength: 8)
 
-                if let service = entry.serviceName {
-                    Text(service)
+                if let badge = entry.displayBadge {
+                    Text(badge)
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.quaternary, in: Capsule())
+                        .background(entry.isProjectServer ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06), in: Capsule())
                 } else if isDuplicate {
                     Text("shared port")
                         .font(.caption.weight(.medium))
@@ -160,7 +224,7 @@ struct PortCardView: View {
                 }
             }
 
-            if isDuplicate, entry.serviceName != nil {
+            if isDuplicate {
                 Text("Another process is also listening on this port.")
                     .font(.caption2)
                     .foregroundStyle(.orange)
@@ -192,12 +256,12 @@ struct PortCardView: View {
             }
 
             HStack {
-                Spacer()
-                Button("Restart", action: onRestart)
-                    .disabled(!entry.canRestart)
-                    .help("SIGTERM, then relaunch the same command line")
                 Button("Stop", role: .destructive, action: onTerminate)
                     .help("Send SIGTERM to this process")
+                Button("Restart", action: onRestart)
+                    .disabled(!entry.canRestart)
+                    .help("SIGTERM, then relaunch the same command line in its working directory")
+                Spacer()
             }
             .controlSize(.small)
         }

@@ -32,15 +32,15 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(rootView: rootView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "ListPP"
         window.contentViewController = hosting
-        window.setContentSize(NSSize(width: 720, height: 680))
-        window.minSize = NSSize(width: 560, height: 480)
+        window.setContentSize(NSSize(width: 760, height: 680))
+        window.minSize = NSSize(width: 600, height: 480)
         window.center()
         window.isReleasedWhenClosed = false
         window.isRestorable = false
